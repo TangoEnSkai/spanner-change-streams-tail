@@ -133,6 +133,103 @@ func TestPartitionVisualizer(t *testing.T) {
 }
 `,
 		},
+		{
+			desc: "mutable key range split and move",
+			readResults: []*changestreams.ReadResult{
+				{
+					PartitionToken: "",
+					ChangeRecords: []*changestreams.ChangeRecord{
+						{
+							PartitionStartRecords: []*changestreams.PartitionStartRecord{
+								{
+									StartTimestamp:  mustParseTime(t, "2026-07-09T06:00:00Z"),
+									RecordSequence:  "00000001",
+									PartitionTokens: []string{"A", "B"},
+								},
+							},
+						},
+					},
+				},
+				{
+					PartitionToken: "A",
+					ChangeRecords: []*changestreams.ChangeRecord{
+						{
+							PartitionEndRecords: []*changestreams.PartitionEndRecord{
+								{
+									EndTimestamp:   mustParseTime(t, "2026-07-09T06:10:00Z"),
+									RecordSequence: "00000002",
+									PartitionToken: "A",
+								},
+							},
+							PartitionEventRecords: []*changestreams.PartitionEventRecord{
+								{
+									CommitTimestamp: mustParseTime(t, "2026-07-09T06:10:00Z"),
+									RecordSequence:  "00000003",
+									PartitionToken:  "A",
+									MoveOutEvents: []*changestreams.MoveOutEvent{
+										{
+											DestinationPartitionToken: "C",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					PartitionToken: "B",
+					ChangeRecords: []*changestreams.ChangeRecord{
+						{
+							PartitionStartRecords: []*changestreams.PartitionStartRecord{
+								{
+									StartTimestamp:  mustParseTime(t, "2026-07-09T06:10:00Z"),
+									RecordSequence:  "00000004",
+									PartitionTokens: []string{"D"},
+								},
+							},
+						},
+					},
+				},
+				{
+					PartitionToken: "C",
+					ChangeRecords: []*changestreams.ChangeRecord{
+						{
+							PartitionEventRecords: []*changestreams.PartitionEventRecord{
+								{
+									CommitTimestamp: mustParseTime(t, "2026-07-09T06:10:00Z"),
+									RecordSequence:  "00000005",
+									PartitionToken:  "C",
+									MoveInEvents: []*changestreams.MoveInEvent{
+										{
+											SourcePartitionToken: "A",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: `digraph {
+  t0 [label="2026-07-09T06:00:00Z", shape=plaintext];
+  t1 [label="2026-07-09T06:10:00Z", shape=plaintext];
+  t0 -> t1 [style=invis];
+  "P1_t0" [label="P1", shape=box];
+  "P1_t1" [label="P1 (ended)", shape=box];
+  "P1_t0" -> "P1_t1" [penwidth=3, arrowhead=none];
+  "P2_t0" [label="P2", shape=box];
+  "P2_t1" [shape=point];
+  "P2_t0" -> "P2_t1" [penwidth=3, arrowhead=none];
+  "P3_t1" [label="P3", shape=box];
+  "P4_t1" [label="P4", shape=box];
+  { rank=same; t0; "P1_t0"; "P2_t0"; }
+  { rank=same; t1; "P1_t1"; "P2_t1"; "P3_t1"; "P4_t1"; }
+  "P1_t1" -> "P3_t1" [style=dashed, constraint=false, label="move"];
+  label="Partition Mapping:\nP1: A\nP2: B\nP3: C\nP4: D\n";
+  labelloc="b";
+}
+`,
+		},
 	} {
 		t.Run(test.desc, func(t *testing.T) {
 			var out bytes.Buffer
