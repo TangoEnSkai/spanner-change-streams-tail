@@ -81,15 +81,30 @@ func (pm partitionMode) String() string {
 	}
 }
 
-func detectPartitionMode(ctx context.Context, client *spanner.Client, streamID string) (partitionMode, error) {
+func detectPartitionMode(ctx context.Context, client *spanner.Client, d dialect, streamID string) (partitionMode, error) {
 	var value string
 	found := false
-	stmt := spanner.Statement{
-		SQL: "SELECT option_value FROM information_schema.change_stream_options WHERE change_stream_name = @stream_id AND option_name = 'partition_mode'",
-		Params: map[string]interface{}{
-			"stream_id": streamID,
-		},
+	var stmt spanner.Statement
+
+	switch d {
+	case dialectGoogleSQL:
+		stmt = spanner.Statement{
+			SQL: "SELECT option_value FROM information_schema.change_stream_options WHERE change_stream_name = @stream_id AND option_name = 'partition_mode'",
+			Params: map[string]interface{}{
+				"stream_id": streamID,
+			},
+		}
+	case dialectPostgreSQL:
+		stmt = spanner.Statement{
+			SQL: "SELECT option_value FROM information_schema.change_stream_options WHERE change_stream_name = $1 AND option_name = 'partition_mode'",
+			Params: map[string]interface{}{
+				"p1": streamID,
+			},
+		}
+	default:
+		return partitionModeUnknown, fmt.Errorf("unexpected dialect: %s", d)
 	}
+
 	if err := client.Single().Query(ctx, stmt).Do(func(r *spanner.Row) error {
 		found = true
 		return r.ColumnByName("option_value", &value)

@@ -25,6 +25,8 @@ import (
 	"cloud.google.com/go/spanner"
 	spannerpb "cloud.google.com/go/spanner/apiv1/spannerpb"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -342,7 +344,73 @@ func TestConvertProtoRecord(t *testing.T) {
 		t.Fatalf("convertProtoRecord failed: %v", err)
 	}
 
-	if diff := cmp.Diff(got, want); diff != "" {
+	if diff := cmp.Diff(got, want, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("convertProtoRecord() diff (-got +want):\n%s", diff)
+	}
+}
+
+func TestDecodeProtoBytePostgresRow(t *testing.T) {
+	commitTime := time.Date(2026, 7, 9, 6, 0, 0, 0, time.UTC)
+	commitTimestamp := timestamppb.New(commitTime)
+
+	protoRecord := &spannerpb.ChangeStreamRecord{
+		Record: &spannerpb.ChangeStreamRecord_DataChangeRecord_{
+			DataChangeRecord: &spannerpb.ChangeStreamRecord_DataChangeRecord{
+				CommitTimestamp:                      commitTimestamp,
+				RecordSequence:                       "00000000",
+				ServerTransactionId:                  "tx123",
+				IsLastRecordInTransactionInPartition: true,
+				Table:                                "users",
+				ModType:                              spannerpb.ChangeStreamRecord_DataChangeRecord_INSERT,
+				ValueCaptureType:                     spannerpb.ChangeStreamRecord_DataChangeRecord_OLD_AND_NEW_VALUES,
+				NumberOfRecordsInTransaction:         1,
+				NumberOfPartitionsInTransaction:      1,
+				TransactionTag:                       "tag123",
+				IsSystemTransaction:                  false,
+			},
+		},
+	}
+
+	protoBytes, err := proto.Marshal(protoRecord)
+	if err != nil {
+		t.Fatalf("failed to marshal proto: %v", err)
+	}
+
+	row, err := spanner.NewRow([]string{"read_proto_bytes"}, []interface{}{protoBytes})
+	if err != nil {
+		t.Fatalf("unexpected spanner.NewRow error: %v", err)
+	}
+
+	reader := &Reader{
+		partitionMode: partitionModeMutableKeyRange,
+	}
+
+	got, err := reader.decodeProtoBytePostgresRow(row)
+	if err != nil {
+		t.Fatalf("decodeProtoBytePostgresRow failed: %v", err)
+	}
+
+	want := &ChangeRecord{
+		DataChangeRecords: []*DataChangeRecord{
+			{
+				CommitTimestamp:                      commitTime,
+				RecordSequence:                       "00000000",
+				ServerTransactionID:                  "tx123",
+				IsLastRecordInTransactionInPartition: true,
+				TableName:                            "users",
+				ModType:                              "INSERT",
+				ValueCaptureType:                     "OLD_AND_NEW_VALUES",
+				NumberOfRecordsInTransaction:         1,
+				NumberOfPartitionsInTransaction:      1,
+				TransactionTag:                       "tag123",
+				IsSystemTransaction:                  false,
+				ColumnTypes:                          []*ColumnType{},
+				Mods:                                 []*Mod{},
+			},
+		},
+	}
+
+	if diff := cmp.Diff(got, want, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("decodeProtoBytePostgresRow() diff (-got +want):\n%s", diff)
 	}
 }

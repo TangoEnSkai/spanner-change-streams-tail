@@ -29,6 +29,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // ReadResult is the result of the read change records from the partition.
@@ -39,14 +40,14 @@ type ReadResult struct {
 
 // ChangeRecord is the single unit of the records from the change stream.
 type ChangeRecord struct {
-	// Both mutable and immutable key range partition mode will return the following fields.
+	// Both mutable and immutable key range partition mode will return the following records.
 	DataChangeRecords []*DataChangeRecord `spanner:"data_change_record" json:"data_change_record"`
 	HeartbeatRecords  []*HeartbeatRecord  `spanner:"heartbeat_record" json:"heartbeat_record"`
 
-	// Immutable key range partition mode will return the following fields.
+	// Immutable key range partition mode will return the following records.
 	ChildPartitionsRecords []*ChildPartitionsRecord `spanner:"child_partitions_record" json:"child_partitions_record"`
 
-	// Mutable key range partition mode will return the following fields.
+	// Mutable key range partition mode will return the following records.
 	PartitionStartRecords []*PartitionStartRecord `json:"partition_start_records"`
 	PartitionEndRecords   []*PartitionEndRecord   `json:"partition_end_records"`
 	PartitionEventRecords []*PartitionEventRecord `json:"partition_event_records"`
@@ -135,7 +136,7 @@ type MoveOutEvent struct {
 	DestinationPartitionToken string `json:"destination_partition_token"`
 }
 
-// changeRecordPostgres is an interim struct to decode change stream result for PostgreSQL.
+// changeRecordPostgres is an interim struct to decode immutable key range change stream result for PostgreSQL.
 type changeRecordPostgres struct {
 	DataChangeRecord      *DataChangeRecord      `spanner:"data_change_record" json:"data_change_record"`
 	HeartbeatRecord       *HeartbeatRecord       `spanner:"heartbeat_record" json:"heartbeat_record"`
@@ -197,7 +198,7 @@ func NewReaderWithConfig(ctx context.Context, projectID, instanceID, databaseID,
 		return nil, fmt.Errorf("failed to detect dialect: %w", err)
 	}
 
-	partitionMode, err := detectPartitionMode(ctx, client, streamID)
+	partitionMode, err := detectPartitionMode(ctx, client, dialect, streamID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect partition mode: %w", err)
 	}
@@ -321,7 +322,13 @@ func (r *Reader) startRead(ctx context.Context, partitionToken string, startTime
 						readResult.ChangeRecords = []*ChangeRecord{changeRecord}
 					}
 				case dialectPostgreSQL:
-					return fmt.Errorf("mutable key range partition mode is not supported for PostgreSQL dialect")
+					changeRecord, err := r.decodeProtoBytePostgresRow(row)
+					if err != nil {
+						return err
+					}
+					if changeRecord != nil {
+						readResult.ChangeRecords = []*ChangeRecord{changeRecord}
+					}
 				default:
 					return fmt.Errorf("unexpected dialect: %s", r.dialect)
 				}
@@ -521,6 +528,18 @@ func decodePostgresRow(row *spanner.Row) (*ChangeRecord, error) {
 	}
 
 	return &changeRecord, nil
+}
+
+func (r *Reader) decodeProtoBytePostgresRow(row *spanner.Row) (*ChangeRecord, error) {
+	var value []byte
+	if err := row.Column(0, &value); err != nil {
+		return nil, err
+	}
+	var protoRecord spannerpb.ChangeStreamRecord
+	if err := proto.Unmarshal(value, &protoRecord); err != nil {
+		return nil, err
+	}
+	return r.convertProtoRecord(&protoRecord)
 }
 
 func (r *Reader) convertProtoRecord(protoRecord *spannerpb.ChangeStreamRecord) (*ChangeRecord, error) {
