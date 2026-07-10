@@ -378,25 +378,23 @@ func (r *Reader) startRead(ctx context.Context, partitionToken string, startTime
 
 	case partitionModeImmutableKeyRange:
 		var stmt spanner.Statement
-		var queryEnd interface{}
-		if r.endTimestamp.IsZero() {
-			queryEnd = nil
-		} else {
-			queryEnd = r.endTimestamp
-		}
-
 		switch r.dialect {
 		case dialectGoogleSQL:
 			stmt = spanner.Statement{
 				SQL: fmt.Sprintf("SELECT ChangeRecord FROM READ_%s(@start_timestamp, @end_timestamp, @partition_token, @heartbeat_millis_second)", r.streamID),
 				Params: map[string]interface{}{
 					"start_timestamp":         startTimestamp,
-					"end_timestamp":           queryEnd,
+					"end_timestamp":           r.endTimestamp,
 					"partition_token":         partitionToken,
 					"heartbeat_millis_second": r.heartbeatInterval / time.Millisecond,
 				},
 			}
+			if r.endTimestamp.IsZero() {
+				// Must be converted to NULL.
+				stmt.Params["end_timestamp"] = nil
+			}
 			if partitionToken == "" {
+				// Must be converted to NULL.
 				stmt.Params["partition_token"] = nil
 			}
 		case dialectPostgreSQL:
@@ -404,12 +402,17 @@ func (r *Reader) startRead(ctx context.Context, partitionToken string, startTime
 				SQL: fmt.Sprintf("SELECT * FROM spanner.read_json_%s($1, $2, $3, $4, null)", r.streamID),
 				Params: map[string]interface{}{
 					"p1": startTimestamp,
-					"p2": queryEnd,
+					"p2": r.endTimestamp,
 					"p3": partitionToken,
 					"p4": r.heartbeatInterval / time.Millisecond,
 				},
 			}
+			if r.endTimestamp.IsZero() {
+				// Must be converted to NULL.
+				stmt.Params["p2"] = nil
+			}
 			if partitionToken == "" {
+				// Must be converted to NULL.
 				stmt.Params["p3"] = nil
 			}
 		default:
@@ -417,7 +420,6 @@ func (r *Reader) startRead(ctx context.Context, partitionToken string, startTime
 		}
 
 		var childPartitionRecords []*ChildPartitionsRecord
-
 		if err := r.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 			readResult := ReadResult{PartitionToken: partitionToken}
 			switch r.dialect {
