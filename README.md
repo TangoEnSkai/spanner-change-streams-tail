@@ -8,13 +8,13 @@ Both GoogleSQL and PostgreSQL database dialects are supported.
 
 ## Install
 
-```
+```bash
 go install github.com/cloudspannerecosystem/spanner-change-streams-tail@latest
 ```
 
 ## Usage
 
-```
+```text
 Usage:
   spanner-change-streams-tail [OPTIONS]
 
@@ -36,9 +36,9 @@ Help Options:
 
 ### Simple example
 
-By default, this tool shows the Data Change record in plan text.
+By default, this tool shows the Data Change record in plain text.
 
-```
+```console
 $ spanner-change-streams-tail -p myproject -i myinstance -d mydb -s mystream
 Reading the stream...
 2022-05-19 06:49:15.093823 +0000 UTC | INSERT | Players | [{"keys":{"PlayerId":"29"},"new_values":{"Name":"foo"},"old_values":{}}]
@@ -51,7 +51,7 @@ Reading the stream...
 
 With `-f json` option, you can get the results in JSON.
 
-```
+```console
 $ spanner-change-streams-tail -p myproject -i myinstance -d mydb -s mystream -f json
 Reading the stream...
 {"commit_timestamp":"2022-05-19T06:46:12.536575Z","record_sequence":"00000000","server_transaction_id":"NjQxOTE0MDE0MzM1MDQ4NTQ5NQ==","is_last_record_in_transaction_in_partition":true,"table_name":"Players","column_types":[{"name":"PlayerId","type":{"code":"INT64"},"is_primary_key":true,"ordinal_position":1},{"name":"Name","type":{"code":"STRING"},"is_primary_key":false,"ordinal_position":2}],"mods":[{"keys":{"PlayerId":"22"},"new_values":{"Name":"foo"},"old_values":{}}],"mod_type":"INSERT","value_capture_type":"OLD_AND_NEW_VALUES","number_of_records_in_transaction":1,"number_of_partitions_in_transaction":1}
@@ -64,7 +64,7 @@ Reading the stream...
 
 You can use `jq` command to modify the results.
 
-```
+```console
 $ spanner-change-streams-tail -p myproject -i myinstance -d mydb -s mystream -f json | jq '{ts:.commit_timestamp, type:.mod_type, table:.table_name}'
 Reading the stream...
 {
@@ -87,10 +87,9 @@ Reading the stream...
 
 ### Start & End timestamp
 
-With `--start` and `--end` options, you can specify the time boundary of the records that be read. Both options must
-be [RFC3339](https://datatracker.ietf.org/doc/html/rfc3339) format.
+With `--start` and `--end` options, you can specify the time boundary of the records that can be read. Both options must be [RFC3339](https://datatracker.ietf.org/doc/html/rfc3339) format.
 
-```
+```console
 $ spanner-change-streams-tail -p myproject -i myinstance -d mydb -s mystream --start='2022-05-19T14:28:00Z' --end='2022-05-19T15:04:00Z'
 Reading the stream...
 2022-05-19 14:28:50.566943 +0000 UTC | INSERT | Players | [{"keys":{"PlayerId":"29"},"new_values":{"Name":"foo"},"old_values":{}}]
@@ -100,10 +99,9 @@ Reading the stream...
 
 ### Verbose output
 
-With `-v, --verbose` option, you can get the Heartbeat and Child Partitions records as well. Also, each result includes
-the `partition_token` that associates with the change record.
+With `-v, --verbose` option, you can get the Heartbeat and Child Partitions records as well. Also, each result includes the `partition_token` that associates with the change record.
 
-```
+```console
 $ spanner-change-streams-tail -p myproject -i myinstance -d mydb -s mystream --verbose
 Reading the stream...
 {"partition_token":"","change_record":[{"data_change_record":[],"heartbeat_record":[],"child_partitions_record":[{"start_timestamp":"2022-05-20T08:23:10.12375Z","record_sequence":"00000001","child_partitions":[{"token":"AUKmAmgw5S0xbORt3X6EPHBTEXRL5H7VVRh1T7I0xeX_M04SnhhFYBOjQuQZ3AHCh6jGc3gsxAqOHRMHyinqts18NY-JY7Ym5fvSoAGouuSmH6Gff1LspwazfdBRY8_G1enbeBuQNa8b1AEG_KsuhFJCdsr6_Q","parent_partition_tokens":[]}]}]}]}
@@ -115,10 +113,11 @@ Reading the stream...
 
 ### Visualize partitions
 
-With `--visualize-partitions` option, you can get the visualized partitions in Graphviz DOT format. You also need to
-specify `--start` and `--end` options to specify the time bound for visualization.
+With `--visualize-partitions` option, you can get the visualized partitions in Graphviz DOT format. You also need to specify `--start` and `--end` options to specify the time bound for visualization.
 
-```
+Immutable key range Change Stream example:
+
+```console
 $ spanner-change-streams-tail -p myproject -i myinstance -d mydb -s mystream --start="2022-05-23T17:20:00+09:00" --end="2022-05-23T19:20:00+09:00" --visualize-partitions
 Reading the stream and analyzing partitions...
 
@@ -157,6 +156,74 @@ digraph {
 ```
 
 ![Partitions](./partitions.png)
+
+Mutable key range Change Stream example:
+
+```console
+$ spanner-change-streams-tail -p myproject -i myinstance -d mydb -s mystream --start="2026-07-09T14:00:00-07:00" --end="2026-07-09T15:00:00-07:00" --visualize-partitions
+Reading the stream and analyzing partitions...
+
+digraph {
+  t0 [label="2026-07-09T21:00:00Z", shape=plaintext];
+  t1 [label="2026-07-09T21:11:18Z", shape=plaintext];
+  t2 [label="2026-07-09T21:31:27Z", shape=plaintext];
+  t3 [label="2026-07-09T21:54:47Z", shape=plaintext];
+  t0 -> t1 [style=invis];
+  t1 -> t2 [style=invis];
+  t2 -> t3 [style=invis];
+  "P1_t0" [label="P1", shape=box];
+  "P1_t1" [label="P1 (ended)", shape=box];
+  "P1_t0" -> "P1_t1" [penwidth=3, arrowhead=none];
+  "P2_t0" [label="P2", shape=box];
+  "P2_t1" [label="P2 (ended)", shape=box];
+  "P2_t0" -> "P2_t1" [penwidth=3, arrowhead=none];
+  "P3_t1" [label="P3", shape=box];
+  "P3_t2" [label="P3 (ended)", shape=box];
+  "P3_t1" -> "P3_t2" [penwidth=3, arrowhead=none];
+  "P4_t2" [label="P4", shape=box];
+  "P4_t3" [label="P4 (ended)", shape=box];
+  "P4_t2" -> "P4_t3" [penwidth=3, arrowhead=none];
+  "P5_t2" [label="P5", shape=box];
+  "P5_t3" [label="P5 (ended)", shape=box];
+  "P5_t2" -> "P5_t3" [penwidth=3, arrowhead=none];
+  "P6_t3" [label="P6", shape=box];
+  "P7_t0" [label="P7", shape=box];
+  "P7_t1" [shape=point];
+  "P7_t2" [shape=point];
+  "P7_t3" [shape=point];
+  "P7_t0" -> "P7_t1" [penwidth=3, arrowhead=none];
+  "P7_t1" -> "P7_t2" [penwidth=3, arrowhead=none];
+  "P7_t2" -> "P7_t3" [penwidth=3, arrowhead=none];
+  "P8_t0" [label="P8", shape=box];
+  "P8_t1" [shape=point];
+  "P8_t2" [shape=point];
+  "P8_t3" [shape=point];
+  "P8_t0" -> "P8_t1" [penwidth=3, arrowhead=none];
+  "P8_t1" -> "P8_t2" [penwidth=3, arrowhead=none];
+  "P8_t2" -> "P8_t3" [penwidth=3, arrowhead=none];
+  "P9_t0" [label="P9", shape=box];
+  "P9_t1" [shape=point];
+  "P9_t2" [shape=point];
+  "P9_t3" [shape=point];
+  "P9_t0" -> "P9_t1" [penwidth=3, arrowhead=none];
+  "P9_t1" -> "P9_t2" [penwidth=3, arrowhead=none];
+  "P9_t2" -> "P9_t3" [penwidth=3, arrowhead=none];
+  { rank=same; t0; "P1_t0"; "P2_t0"; "P7_t0"; "P8_t0"; "P9_t0"; }
+  { rank=same; t1; "P1_t1"; "P2_t1"; "P3_t1"; "P7_t1"; "P8_t1"; "P9_t1"; }
+  { rank=same; t2; "P3_t2"; "P4_t2"; "P5_t2"; "P7_t2"; "P8_t2"; "P9_t2"; }
+  { rank=same; t3; "P4_t3"; "P5_t3"; "P6_t3"; "P7_t3"; "P8_t3"; "P9_t3"; }
+  "P2_t1" -> "P3_t1" [style=dashed, constraint=false, label="move"];
+  "P1_t1" -> "P3_t1" [style=dashed, constraint=false, label="move"];
+  "P3_t2" -> "P4_t2" [style=dashed, constraint=false, label="move"];
+  "P3_t2" -> "P5_t2" [style=dashed, constraint=false, label="move"];
+  "P5_t3" -> "P6_t3" [style=dashed, constraint=false, label="move"];
+  "P4_t3" -> "P6_t3" [style=dashed, constraint=false, label="move"];
+  label="Partition Mapping:\nP1: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEAgoCDCMNkAAAAAAABhAQdscEUhWcwXzAAAf__wGQBAf__\nP2: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEAgoCDCMNkAAAAAAAChAQdscEUhWcwXzAAAf__wGQBAf__\nP3: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEAgoCDCMNkAAAAAAADhAQdscEUhWcwXzAAAf__wGQBAf__\nP4: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEAgoCDCMNkAAAAAAAEhAQdscEUhWcwXzAAAf__wGQBAf__\nP5: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEAgoCDCMNkAAAAAAAFhAQdscEUhWcwXzAAAf__wGQBAf__\nP6: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEAgoCDCMNkAAAAAAAGhAQdscEUhWcwXzAAAf__wGQBAf__\nP7: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEGKuntQACTgoCDAIQEzlszPIVnMTQ3XzQ0OTk4MzU2AAH__8BkAQH__w\nP8: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEGKuntYACTgoCDAIQExC7GG4VnMTQ3XzQ0OTk4MzU4AAH__8BkAQH__w\nP9: __8BAYEHAiitEwAAAYLAQ4NjcwABhIEGKuntcACTgoCDAIQEHPh6e4VnMTQ3XzQ0OTk4MzU5AAH__8BkAQH__w\n";
+  labelloc="b";
+}
+```
+
+![MutableKeyRangePartitions](./mutable_key_range_partitions.png)
 
 ## Go library
 

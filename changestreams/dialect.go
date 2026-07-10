@@ -19,6 +19,7 @@ package changestreams
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"cloud.google.com/go/spanner"
 )
@@ -51,12 +52,77 @@ func detectDialect(ctx context.Context, client *spanner.Client) (dialect, error)
 		return dialectUnknown, err
 	}
 
-	switch value {
+	switch strings.ToUpper(value) {
 	case "GOOGLE_STANDARD_SQL", "":
 		return dialectGoogleSQL, nil
 	case "POSTGRESQL":
 		return dialectPostgreSQL, nil
 	default:
 		return dialectUnknown, fmt.Errorf("invalid dialect: %q", value)
+	}
+}
+
+type partitionMode int
+
+const (
+	partitionModeUnknown partitionMode = iota
+	partitionModeImmutableKeyRange
+	partitionModeMutableKeyRange
+)
+
+func (pm partitionMode) String() string {
+	switch pm {
+	case partitionModeImmutableKeyRange:
+		return "IMMUTABLE_KEY_RANGE"
+	case partitionModeMutableKeyRange:
+		return "MUTABLE_KEY_RANGE"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func detectPartitionMode(ctx context.Context, client *spanner.Client, d dialect, streamID string) (partitionMode, error) {
+	var value string
+	found := false
+	var stmt spanner.Statement
+
+	switch d {
+	case dialectGoogleSQL:
+		stmt = spanner.Statement{
+			SQL: "SELECT option_value FROM information_schema.change_stream_options WHERE change_stream_name = @stream_id AND option_name = 'partition_mode'",
+			Params: map[string]interface{}{
+				"stream_id": streamID,
+			},
+		}
+	case dialectPostgreSQL:
+		stmt = spanner.Statement{
+			SQL: "SELECT option_value FROM information_schema.change_stream_options WHERE change_stream_name = $1 AND option_name = 'partition_mode'",
+			Params: map[string]interface{}{
+				"p1": streamID,
+			},
+		}
+	default:
+		return partitionModeUnknown, fmt.Errorf("unexpected dialect: %s", d)
+	}
+
+	if err := client.Single().Query(ctx, stmt).Do(func(r *spanner.Row) error {
+		found = true
+		return r.ColumnByName("option_value", &value)
+	}); err != nil {
+		return partitionModeUnknown, err
+	}
+
+	// If the partition_mode option is not found, default to IMMUTABLE_KEY_RANGE.
+	if !found {
+		return partitionModeImmutableKeyRange, nil
+	}
+
+	switch strings.ToUpper(value) {
+	case "IMMUTABLE_KEY_RANGE", "":
+		return partitionModeImmutableKeyRange, nil
+	case "MUTABLE_KEY_RANGE":
+		return partitionModeMutableKeyRange, nil
+	default:
+		return partitionModeUnknown, fmt.Errorf("invalid partition mode: %q", value)
 	}
 }
