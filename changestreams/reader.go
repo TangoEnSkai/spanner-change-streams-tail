@@ -448,6 +448,8 @@ func (r *Reader) startRead(ctx context.Context, partitionToken string, startTime
 			return err
 		}
 
+		r.markStateFinished(partitionToken)
+
 		for _, childPartitionsRecord := range childPartitionRecords {
 			childStartTimestamp := childPartitionsRecord.StartTimestamp
 			for _, childPartition := range childPartitionsRecord.ChildPartitions {
