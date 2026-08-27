@@ -171,11 +171,11 @@ type Config struct {
 	// If StartTimestamp is a zero value of time.Time, reader reads from the current timestamp.
 	StartTimestamp time.Time
 	// If EndTimestamp is a zero value of time.Time, reader reads until it is cancelled.
-	EndTimestamp time.Time
+	EndTimestamp      time.Time
+	HeartbeatInterval time.Duration
 	// SpannerClient, if set, is reused instead of creating a new *spanner.Client.
 	// The caller keeps ownership of it: Close does not close a client provided this way.
 	SpannerClient        *spanner.Client
-	HeartbeatInterval    time.Duration
 	SpannerClientConfig  spanner.ClientConfig
 	SpannerClientOptions []option.ClientOption
 }
